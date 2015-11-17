@@ -2,18 +2,22 @@ package pl.edu.agh.actors;
 
 import akka.actor.ActorRef;
 import akka.actor.UntypedActor;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.SurroundingWorldSnapshot;
 import pl.edu.agh.messages.WorldInitialization;
+import pl.edu.agh.model.Street;
+import pl.edu.agh.model.WorldSnapshot;
 
 public class Supervisor extends UntypedActor {
     private static final Integer HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING = 15;
     private static final Integer VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING = 15;
-    private ActorRef horizontalDriver;
-    private Integer horizontalDriverDistanceToCrossing;
-    private ActorRef verticalDriver;
-    private Integer verticalDriverDistanceToCrossing;
+    private static final Integer STREET_WIDTH = 2;
+    private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
+    private WorldSnapshot previousSnapshot;
+    private WorldSnapshot currentSnapshot;
     private int countDown = 2;
     private int iteration = 0;
 
@@ -34,15 +38,37 @@ public class Supervisor extends UntypedActor {
         }
     }
 
-    private void detectCollisions() {
+    private boolean detectCollisions() {
+        for (ActorRef horizontalDriver : currentSnapshot.getDriversOnStreet(Street.WEST_EAST)) {
+            for (ActorRef verticalDriver : currentSnapshot.getDriversOnStreet(Street.NORTH_SOUTH)) {
+                if (areBothOnIntersection(horizontalDriver, verticalDriver)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
+    private boolean areBothOnIntersection(ActorRef horizontalDriver, ActorRef verticalDriver) {
+        return isOnIntersection(horizontalDriver) && isOnIntersection(verticalDriver);
+    }
+
+    private boolean isOnIntersection(ActorRef driver) {
+        //TODO: implement
+        return false;
     }
 
     private void init(WorldInitialization message) {
-        horizontalDriver = this.getContext().actorOf(Driver.props(getDriverConfiguration(HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING)));
-        horizontalDriverDistanceToCrossing = HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING;
-        verticalDriver = this.getContext().actorOf(Driver.props(getDriverConfiguration(HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING)));
-        verticalDriverDistanceToCrossing = VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING;
+        previousSnapshot = new WorldSnapshot();
+        DriverConfiguration horizontalDriverConfiguration = getDriverConfiguration(HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING);
+        ActorRef horizontalDriver = this.getContext().actorOf(Driver.props(horizontalDriverConfiguration));
+        previousSnapshot.addDriver(horizontalDriver, Street.NORTH_SOUTH, horizontalDriverConfiguration);
+
+        DriverConfiguration verticalDriverConfiguration = getDriverConfiguration(VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING);
+        ActorRef verticalDriver = this.getContext().actorOf(Driver.props(getDriverConfiguration(HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING)));
+        previousSnapshot.addDriver(verticalDriver, Street.WEST_EAST, verticalDriverConfiguration);
+        currentSnapshot = previousSnapshot.copy();
+
         broadcastWorldSnapshot();
     }
 
@@ -52,21 +78,18 @@ public class Supervisor extends UntypedActor {
                 .carLength(3)
                 .carWidth(2)
                 .maxVelocity(3)
-                .initialDistanceToIntersection(15)
+                .initialDistanceToIntersection(initialDistanceToIntersection)
                 .yellowLightGoProbability(0.0f)
                 .build();
     }
 
     private void broadcastWorldSnapshot() {
-        horizontalDriver.tell(new SurroundingWorldSnapshot(null, verticalDriverDistanceToCrossing, null), getSelf());
-        verticalDriver.tell(new SurroundingWorldSnapshot(null, horizontalDriverDistanceToCrossing, null), getSelf());
+        for (ActorRef driver : currentSnapshot.getAllDrivers()) {
+            driver.tell(new SurroundingWorldSnapshot(null, null, null), getSelf());
+        }
     }
 
     private void updateWorldState(DriverUpdate message) {
-        if (getSender().equals(horizontalDriver)) {
-            horizontalDriverDistanceToCrossing = message.newDistanceToIntersection;
-        } else {
-            verticalDriverDistanceToCrossing = message.newDistanceToIntersection;
-        }
+        currentSnapshot.update(getSender(), message);
     }
 }
