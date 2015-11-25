@@ -3,17 +3,27 @@ package pl.edu.agh.model;
 import akka.actor.ActorRef;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
+import pl.edu.agh.messages.TrafficLightsUpdate;
 
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import static pl.edu.agh.model.Street.NORTH_SOUTH;
+import static pl.edu.agh.model.Street.WEST_EAST;
+import static pl.edu.agh.model.TrafficLightColor.GREEN;
+import static pl.edu.agh.model.TrafficLightColor.RED;
+
 public class WorldSnapshot {
     private Map<ActorRef,DriverState> driverToState = new HashMap<ActorRef, DriverState>();
     private Map<ActorRef, DriverConfiguration> driverToConfiguration = new HashMap<ActorRef, DriverConfiguration>();
+    private Map<Street, TrafficLightColor> streetToLightColor = new HashMap<Street, TrafficLightColor>();
 
-    public WorldSnapshot() {};
+    public WorldSnapshot() {
+        streetToLightColor.put(WEST_EAST, GREEN);
+        streetToLightColor.put(NORTH_SOUTH, RED);
+    }
 
     public WorldSnapshot(Map<ActorRef,DriverState> driverToState, Map<ActorRef, DriverConfiguration> driverToConfiguration) {
         this.driverToState = driverToState;
@@ -26,6 +36,10 @@ public class WorldSnapshot {
                 updateMessage.newDistanceToIntersection,
                 updateMessage.currentVelocity)
         );
+    }
+
+    public void update(TrafficLightsUpdate update) {
+        this.streetToLightColor = update.streetToLightColor;
     }
 
     public void addDriver(ActorRef driver, Street street, DriverConfiguration configuration) {
@@ -68,4 +82,11 @@ public class WorldSnapshot {
         return result;
     }
 
+    public DriverState getDriverState(ActorRef driver) {
+        return driverToState.get(driver);
+    }
+
+    public DriverConfiguration getDriverConfiguration(ActorRef driver) {
+        return driverToConfiguration.get(driver);
+    }
 }
