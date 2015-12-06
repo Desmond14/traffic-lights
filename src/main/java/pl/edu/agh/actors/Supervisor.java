@@ -8,9 +8,11 @@ import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.configuration.TrafficLightsConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.SurroundingWorldSnapshot;
+import pl.edu.agh.messages.TrafficLightsUpdate;
 import pl.edu.agh.messages.WorldInitialization;
 import pl.edu.agh.model.DriverState;
 import pl.edu.agh.model.Street;
+import pl.edu.agh.model.TrafficLightColor;
 import pl.edu.agh.model.WorldSnapshot;
 
 public class Supervisor extends UntypedActor {
@@ -18,7 +20,7 @@ public class Supervisor extends UntypedActor {
     private static final Integer VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING = 15;
     private static final Integer STREET_WIDTH = 3;
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
-    ActorRef trafficLightsAgent;
+    private ActorRef trafficLightsAgent;
     private WorldSnapshot previousSnapshot;
     private WorldSnapshot currentSnapshot;
     private int countDown = 2;
@@ -40,6 +42,8 @@ public class Supervisor extends UntypedActor {
                     countDown = 2;
                 }
             }
+        } else if (message instanceof TrafficLightsUpdate) {
+            currentSnapshot.update((TrafficLightsUpdate)message);
         }
     }
 
@@ -106,8 +110,13 @@ public class Supervisor extends UntypedActor {
 
     private void broadcastWorldSnapshot() {
         for (ActorRef driver : currentSnapshot.getAllDrivers()) {
-            driver.tell(new SurroundingWorldSnapshot(null, null, null), getSelf());
+            driver.tell(new SurroundingWorldSnapshot(null, null, getLights(currentSnapshot.getDriverState(driver).getStreet())), getSelf());
         }
+        trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(), getSelf());
+    }
+
+    private TrafficLightColor getLights(Street street) {
+        return currentSnapshot.getLightColorOnStreet(street);
     }
 
     private void updateWorldState(DriverUpdate message) {

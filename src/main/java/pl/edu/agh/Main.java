@@ -11,7 +11,7 @@ public class Main {
         ActorSystem system = ActorSystem.create("IntersectionSimulation");
         ActorRef supervisor = system.actorOf(Props.create(Supervisor.class), "supervisor");
         supervisor.tell(new WorldInitialization(), null);
-        Thread.sleep(5000);
-        system.shutdown();
+//        Thread.sleep(5000);
+//        system.shutdown();
     }
 }

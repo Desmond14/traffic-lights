@@ -3,6 +3,7 @@ package pl.edu.agh.model;
 import akka.actor.ActorRef;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
+import pl.edu.agh.messages.IntersectionSurrounding;
 import pl.edu.agh.messages.TrafficLightsUpdate;
 
 import java.util.HashMap;
@@ -16,7 +17,8 @@ import static pl.edu.agh.model.TrafficLightColor.GREEN;
 import static pl.edu.agh.model.TrafficLightColor.RED;
 
 public class WorldSnapshot {
-    private Map<ActorRef,DriverState> driverToState = new HashMap<ActorRef, DriverState>();
+    public static final int INITIAL_VELOCITY = 0;
+    private Map<ActorRef, DriverState> driverToState = new HashMap<ActorRef, DriverState>();
     private Map<ActorRef, DriverConfiguration> driverToConfiguration = new HashMap<ActorRef, DriverConfiguration>();
     private Map<Street, TrafficLightColor> streetToLightColor = new HashMap<Street, TrafficLightColor>();
 
@@ -47,12 +49,16 @@ public class WorldSnapshot {
         driverToState.put(driver, new DriverState(
                 street,
                 configuration.initialDistanceToIntersection,
-                0
+                INITIAL_VELOCITY
         ));
     }
 
     public Set<ActorRef> getAllDrivers() {
         return driverToState.keySet();
+    }
+
+    public TrafficLightColor getLightColorOnStreet(Street street) {
+        return streetToLightColor.get(street);
     }
 
     public Set<ActorRef> getDriversOnStreet(Street street) {
@@ -88,5 +94,27 @@ public class WorldSnapshot {
 
     public DriverConfiguration getDriverConfiguration(ActorRef driver) {
         return driverToConfiguration.get(driver);
+    }
+
+    public IntersectionSurrounding getIntersectionSurrouding() {
+        final Set<DriverState> northSouthDrivers = new HashSet<DriverState>();
+        final Set<DriverState> eastWestDrivers = new HashSet<DriverState>();
+        for (ActorRef driver : driverToState.keySet()) {
+            DriverState state = driverToState.get(driver);
+            if (state.getPositionOnStreet() < 0) {
+                continue;
+            }
+            if (state.getStreet() == WEST_EAST) {
+                eastWestDrivers.add(state);
+            } else {
+                northSouthDrivers.add(state);
+            }
+        }
+        return new IntersectionSurrounding(
+                new HashMap<Street, Set<DriverState>>() {{
+                    put(WEST_EAST, eastWestDrivers);
+                    put(NORTH_SOUTH, northSouthDrivers);
+                }}
+        );
     }
 }

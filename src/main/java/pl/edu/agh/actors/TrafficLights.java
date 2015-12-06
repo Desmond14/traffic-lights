@@ -2,6 +2,8 @@ package pl.edu.agh.actors;
 
 import akka.actor.Props;
 import akka.actor.UntypedActor;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
 import akka.japi.Creator;
 import pl.edu.agh.configuration.TrafficLightsConfiguration;
 import pl.edu.agh.messages.IntersectionSurrounding;
@@ -20,6 +22,7 @@ import static pl.edu.agh.model.TrafficLightColor.GREEN;
 import static pl.edu.agh.model.TrafficLightColor.RED;
 
 public class TrafficLights extends UntypedActor {
+    private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private final TrafficLightsConfiguration configuration;
     private final Map<Street, TrafficLightColor> streetToLightColor = new HashMap<Street, TrafficLightColor>();
     private final Map<Street, Integer> streetCounters = new HashMap<Street, Integer>();
@@ -39,18 +42,22 @@ public class TrafficLights extends UntypedActor {
         updateCounters(intersectionSurrounding.streetToDrivers);
         currentLightGreenSince++;
         if (isAnyLightGreen() && currentLightGreenSince < configuration.minimumGreenTime) {
+            log.info("Minimum green time not reached");
             getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
             return;
         }
         if (isAnyLightGreen() && fewCarsLeftInShortDistance(getDriversOnGreen(intersectionSurrounding.streetToDrivers))) {
+            log.info("Few cars left in short distance");
             getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
             return;
         }
 
         if (noOneOnGreenDirection(getDriversOnGreen(intersectionSurrounding.streetToDrivers)) && isAnyoneAwaitingOnRed(getDriversOnRed(intersectionSurrounding.streetToDrivers))) {
+            log.info("No one waiting on green. Switching lights");
             switchLights();
         }
         if (redStreetColorCounter() > configuration.counterLimitValue) {
+            log.info("Red light counter exceeded. Switching lights");
             switchLights();
         }
         getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
@@ -70,7 +77,8 @@ public class TrafficLights extends UntypedActor {
     }
 
     private boolean fewCarsLeftInShortDistance(Set<DriverState> drivers) {
-        return countAwaiting(drivers, configuration.shortSupervisedDistance) < configuration.shortSupervisedDistanceMaxCarsNo;
+        int awaitingOnGreen = countAwaiting(drivers, configuration.shortSupervisedDistance);
+        return awaitingOnGreen < configuration.shortSupervisedDistanceMaxCarsNo && awaitingOnGreen > 0;
     }
 
     private boolean isAnyoneAwaitingOnRed(Set<DriverState> driversOnRed) {
@@ -116,7 +124,7 @@ public class TrafficLights extends UntypedActor {
     private Integer countAwaiting(Set<DriverState> driversBeforeIntersection, Integer distance) {
         int counter = 0;
         for (DriverState driver : driversBeforeIntersection) {
-            if (driver.getPositionOnStreet() < distance) {
+            if (driver.getPositionOnStreet() < distance && driver.getPositionOnStreet() >= 0) {
                 counter++;
             }
         }
