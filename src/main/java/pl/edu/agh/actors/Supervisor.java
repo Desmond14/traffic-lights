@@ -109,7 +109,7 @@ public class Supervisor extends UntypedActor {
 
     private void broadcastWorldSnapshot() {
         for (ActorRef driver : currentSnapshot.getAllDrivers()) {
-            driver.tell(new SurroundingWorldSnapshot(null, null, getLights(currentSnapshot.getDriverState(driver).getStreet())), getSelf());
+            driver.tell(new SurroundingWorldSnapshot(currentSnapshot.getCarAheadDistance(driver), null, getLights(currentSnapshot.getDriverState(driver).getStreet())), getSelf());
         }
         trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
         trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());

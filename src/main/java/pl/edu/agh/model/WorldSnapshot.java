@@ -1,6 +1,7 @@
 package pl.edu.agh.model;
 
 import akka.actor.ActorRef;
+import pl.edu.agh.actors.Driver;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.IntersectionSurrounding;
@@ -124,5 +125,27 @@ public class WorldSnapshot {
                     put(WEST_EAST, eastWestDrivers);
                     put(NORTH_SOUTH, northSouthDrivers);
                 }}, isInitialMessage);
+    }
+
+    public Integer getCarAheadDistance(ActorRef driver) {
+        Set<ActorRef> driversOnSameStreet = getDriversOnStreet(driverToState.get(driver).getStreet());
+        driversOnSameStreet.remove(driver);
+        Integer nearestDistanceAhead = Integer.MAX_VALUE;
+        for (ActorRef driverOnSameStreet : driversOnSameStreet) {
+            if (isAhead(driver, driverOnSameStreet)) {
+                if (distance(driver, driverOnSameStreet) < nearestDistanceAhead) {
+                    nearestDistanceAhead = distance(driver, driverOnSameStreet);
+                }
+            }
+        }
+        return nearestDistanceAhead;
+    }
+
+    private boolean isAhead(ActorRef driver, ActorRef driverOnSameStreet) {
+        return driverToState.get(driver).getPositionOnStreet() > driverToState.get(driverOnSameStreet).getPositionOnStreet();
+    }
+
+    private Integer distance(ActorRef driver, ActorRef driverOnSameStreet) {
+        return driverToState.get(driver).getPositionOnStreet() - driverToState.get(driverOnSameStreet).getPositionOnStreet();
     }
 }

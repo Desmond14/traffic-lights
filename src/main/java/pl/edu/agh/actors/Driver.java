@@ -80,7 +80,13 @@ public class Driver extends UntypedActor {
     }
 
     private Integer followNagelSchreckenberg(SurroundingWorldSnapshot snapshot) {
-        return tryAccelerate();
+        Integer newVelocity = tryAccelerate();
+        newVelocity = Math.min(snapshot.carAheadDistance, newVelocity);
+        if (Math.random() < 0.1) {
+            newVelocity = Math.max(0, newVelocity-1);
+        }
+//        log.info("Old velocity: " + velocity, " newVeloctiy: " + newVelocity);
+        return newVelocity;
     }
 
     private Integer slowDown() {
