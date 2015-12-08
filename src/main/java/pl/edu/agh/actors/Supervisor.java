@@ -58,6 +58,11 @@ public class Supervisor extends UntypedActor {
             if (((TrafficGenerationMessage) message).newTraffic.get(Street.NORTH_SOUTH).isPresent()) {
                 carsInSimulation++;
             }
+            if (((TrafficGenerationMessage) message).isInitial) {
+                log.info("Broadcasting initial info");
+                countDown = carsInSimulation;
+                broadcastWorldSnapshot();
+            }
         }
     }
 
@@ -89,7 +94,7 @@ public class Supervisor extends UntypedActor {
         currentSnapshot = previousSnapshot.copy();
         trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(getTrafficLightsConfiguration()), "trafficLights");
         trafficGeneratorAgent = this.getContext().actorOf(TrafficGenerator.props(DEFAULT_PROBABILITY), "trafficGenerator");
-        broadcastWorldSnapshot();
+        trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(true), getSelf());
     }
 
     private TrafficLightsConfiguration getTrafficLightsConfiguration() {

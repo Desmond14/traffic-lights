@@ -1,8 +1,11 @@
 package pl.edu.agh.actors;
 
+import akka.actor.Actor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
 import akka.actor.UntypedActor;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
 import akka.japi.Creator;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.IntersectionSurrounding;
@@ -22,6 +25,7 @@ import static pl.edu.agh.model.Street.WEST_EAST;
 public class TrafficGenerator extends UntypedActor {
     private static final Integer INITIAL_DISTANCE_TO_CROSSING = 15;
     private static final Integer DEFAULT_CAR_LENGTH = 2;
+    private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private final Map<Street, Float> newCarProbability;
 
     public TrafficGenerator(Map<Street, Float> newCarProbability) {
@@ -37,20 +41,24 @@ public class TrafficGenerator extends UntypedActor {
 
     private TrafficGenerationMessage generateTraffic(IntersectionSurrounding message) {
         Map<Street, Optional<DriverWithConfiguration>> newTraffic = new HashMap<>();
+
         if (message.isInitialMessage) {
+            log.info("Received initial message");
             newTraffic.put(NORTH_SOUTH, generateDriverWithConfiguration());
             newTraffic.put(WEST_EAST, generateDriverWithConfiguration());
+            return new TrafficGenerationMessage(newTraffic, true);
         }
         else {
             newTraffic.put(NORTH_SOUTH, generateTraffic(isGenerationPossible(message, NORTH_SOUTH), NORTH_SOUTH));
             newTraffic.put(WEST_EAST, generateTraffic(isGenerationPossible(message, WEST_EAST), WEST_EAST));
+            return new TrafficGenerationMessage(newTraffic, false);
         }
-        return new TrafficGenerationMessage(newTraffic);
+
     }
 
     private boolean isGenerationPossible(IntersectionSurrounding intersectionSurrounding, Street street) {
         Set<DriverState> drivers = intersectionSurrounding.streetToDrivers.get(street);
-        return isAnyOnStreetBeginning(drivers);
+        return !isAnyOnStreetBeginning(drivers);
     }
 
     private boolean isAnyOnStreetBeginning(Set<DriverState> drivers) {
@@ -68,6 +76,7 @@ public class TrafficGenerator extends UntypedActor {
 
     private Optional<DriverWithConfiguration> generateTraffic(boolean isGenerationPossible, Street street) {
         if (isGenerationPossible && (Math.random() < newCarProbability.get(street))) {
+            log.info("Generating car on street " + street);
             return generateDriverWithConfiguration();
         }
         return Optional.empty();
@@ -93,6 +102,7 @@ public class TrafficGenerator extends UntypedActor {
 
     public static Props props(final Map<Street, Float> newCarProbability) {
         return Props.create(new Creator<TrafficGenerator>() {
+            @Override
             public TrafficGenerator create() throws Exception {
                 return new TrafficGenerator(newCarProbability);
             }
