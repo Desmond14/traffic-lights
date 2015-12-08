@@ -98,10 +98,8 @@ public class Driver extends UntypedActor {
     }
 
     public static Props props(final DriverConfiguration driverConfiguration) {
-        return Props.create(new Creator<Driver>() {
-            public Driver create() throws Exception {
-                return new Driver(driverConfiguration);
-            }
+        return Props.create(() -> {
+            return new Driver(driverConfiguration);
         });
     }
 

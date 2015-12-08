@@ -4,6 +4,7 @@ import akka.actor.ActorRef;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.IntersectionSurrounding;
+import pl.edu.agh.messages.TrafficGenerationMessage;
 import pl.edu.agh.messages.TrafficLightsUpdate;
 
 import java.util.HashMap;
@@ -42,6 +43,14 @@ public class WorldSnapshot {
 
     public void update(TrafficLightsUpdate update) {
         this.streetToLightColor = update.streetToLightColor;
+    }
+
+    public void update(TrafficGenerationMessage message) {
+        for (Street street : message.newTraffic.keySet()) {
+            message.newTraffic.get(street).ifPresent(
+                    driverWithConfig ->  addDriver(driverWithConfig.driver, street, driverWithConfig.configuration)
+            );
+        }
     }
 
     public void addDriver(ActorRef driver, Street street, DriverConfiguration configuration) {
@@ -96,7 +105,7 @@ public class WorldSnapshot {
         return driverToConfiguration.get(driver);
     }
 
-    public IntersectionSurrounding getIntersectionSurrouding() {
+    public IntersectionSurrounding getIntersectionSurrouding(Boolean isInitialMessage) {
         final Set<DriverState> northSouthDrivers = new HashSet<DriverState>();
         final Set<DriverState> eastWestDrivers = new HashSet<DriverState>();
         for (ActorRef driver : driverToState.keySet()) {
@@ -110,11 +119,10 @@ public class WorldSnapshot {
                 northSouthDrivers.add(state);
             }
         }
-        return new IntersectionSurrounding(
+        return  new IntersectionSurrounding(
                 new HashMap<Street, Set<DriverState>>() {{
                     put(WEST_EAST, eastWestDrivers);
                     put(NORTH_SOUTH, northSouthDrivers);
-                }}
-        );
+                }}, isInitialMessage);
     }
 }

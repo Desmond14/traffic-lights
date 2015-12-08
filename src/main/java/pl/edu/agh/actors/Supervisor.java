@@ -6,28 +6,33 @@ import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.configuration.TrafficLightsConfiguration;
-import pl.edu.agh.messages.DriverUpdate;
-import pl.edu.agh.messages.SurroundingWorldSnapshot;
-import pl.edu.agh.messages.TrafficLightsUpdate;
-import pl.edu.agh.messages.WorldInitialization;
+import pl.edu.agh.messages.*;
 import pl.edu.agh.model.DriverState;
 import pl.edu.agh.model.Street;
 import pl.edu.agh.model.TrafficLightColor;
 import pl.edu.agh.model.WorldSnapshot;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class Supervisor extends UntypedActor {
-    private static final Integer HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING = 15;
-    private static final Integer VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING = 15;
     private static final Integer STREET_WIDTH = 3;
+    private static final Map<Street, Float> DEFAULT_PROBABILITY = new HashMap<Street, Float>() {{
+        put(Street.WEST_EAST, 0.25f);
+        put(Street.NORTH_SOUTH, 0.25f);
+    }};
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private ActorRef trafficLightsAgent;
+    private ActorRef trafficGeneratorAgent;
     private WorldSnapshot previousSnapshot;
     private WorldSnapshot currentSnapshot;
-    private int countDown = 2;
+    private int countDown = 0;
+    private int carsInSimulation = 0;
     private int iteration = 0;
 
     @Override
     public void onReceive(Object message) throws Exception {
+        //TODO: handle initial generation of drivers
         if (message instanceof WorldInitialization) {
             init((WorldInitialization) message);
         } else if (message instanceof DriverUpdate) {
@@ -37,13 +42,22 @@ public class Supervisor extends UntypedActor {
                 if (detectCollisions()) {
                     log.info("Collision detected!");
                 }
-                if (iteration++ < 20) {
+                if (iteration++ < 50) {
                     broadcastWorldSnapshot();
-                    countDown = 2;
+                    countDown = carsInSimulation;
                 }
             }
         } else if (message instanceof TrafficLightsUpdate) {
-            currentSnapshot.update((TrafficLightsUpdate)message);
+            currentSnapshot.update((TrafficLightsUpdate) message);
+        } else if (message instanceof TrafficGenerationMessage) {
+            previousSnapshot.update((TrafficGenerationMessage) message);
+            currentSnapshot.update((TrafficGenerationMessage) message);
+            if (((TrafficGenerationMessage) message).newTraffic.get(Street.WEST_EAST).isPresent()) {
+                carsInSimulation++;
+            }
+            if (((TrafficGenerationMessage) message).newTraffic.get(Street.NORTH_SOUTH).isPresent()) {
+                carsInSimulation++;
+            }
         }
     }
 
@@ -72,30 +86,10 @@ public class Supervisor extends UntypedActor {
 
     private void init(WorldInitialization message) {
         previousSnapshot = new WorldSnapshot();
-        DriverConfiguration horizontalDriverConfiguration = getDriverConfiguration(HORIZONTAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING);
-        ActorRef horizontalDriver = this.getContext().actorOf(Driver.props(horizontalDriverConfiguration));
-        previousSnapshot.addDriver(horizontalDriver, Street.NORTH_SOUTH, horizontalDriverConfiguration);
-
-        DriverConfiguration verticalDriverConfiguration = getDriverConfiguration(VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING);
-        ActorRef verticalDriver = this.getContext().actorOf(Driver.props(getDriverConfiguration(VERTICAL_DRIVER_INITIAL_DISTANCE_TO_CROSSING)));
-        previousSnapshot.addDriver(verticalDriver, Street.WEST_EAST, verticalDriverConfiguration);
-
-        TrafficLightsConfiguration trafficLightsConfiguration = getTrafficLightsConfiguration();
-        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(trafficLightsConfiguration));
-
         currentSnapshot = previousSnapshot.copy();
+        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(getTrafficLightsConfiguration()), "trafficLights");
+        trafficGeneratorAgent = this.getContext().actorOf(TrafficGenerator.props(DEFAULT_PROBABILITY), "trafficGenerator");
         broadcastWorldSnapshot();
-    }
-
-    private DriverConfiguration getDriverConfiguration(Integer initialDistanceToIntersection) {
-        return new DriverConfiguration.Builder()
-                .acceleration(1)
-                .carLength(3)
-                .carWidth(2)
-                .maxVelocity(3)
-                .initialDistanceToIntersection(initialDistanceToIntersection)
-                .yellowLightGoProbability(0.0f)
-                .build();
     }
 
     private TrafficLightsConfiguration getTrafficLightsConfiguration() {
@@ -112,7 +106,8 @@ public class Supervisor extends UntypedActor {
         for (ActorRef driver : currentSnapshot.getAllDrivers()) {
             driver.tell(new SurroundingWorldSnapshot(null, null, getLights(currentSnapshot.getDriverState(driver).getStreet())), getSelf());
         }
-        trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(), getSelf());
+        trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
+        trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
     }
 
     private TrafficLightColor getLights(Street street) {
