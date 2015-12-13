@@ -1,5 +1,7 @@
 package pl.edu.agh.configuration;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
+
 public class DriverConfiguration {
     public final Integer maxVelocity;
     public final Integer acceleration;
@@ -49,6 +51,18 @@ public class DriverConfiguration {
         public DriverConfiguration build() {
             return new DriverConfiguration(this);
         }
+    }
+
+    @Override
+    public String toString() {
+        return toStringHelper(this.getClass())
+                .add("maxVelocity", maxVelocity)
+                .add("acceleration", acceleration)
+                .add("carLength", carLength)
+                .add("carWidth", carWidth)
+                .add("initialDistanceToIntersection", initialDistanceToIntersection)
+                .add("yellowGoProbability", yellowLightGoProbability)
+                .toString();
     }
 
     private DriverConfiguration(Builder builder) {

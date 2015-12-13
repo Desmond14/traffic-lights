@@ -17,10 +17,19 @@ import java.util.Map;
 
 public class Supervisor extends UntypedActor {
     private static final Integer STREET_WIDTH = 3;
+    private static final Integer MONITORED_DISTANCE_FROM_CROSSING = 20;
     private static final Map<Street, Float> DEFAULT_PROBABILITY = new HashMap<Street, Float>() {{
         put(Street.WEST_EAST, 0.25f);
         put(Street.NORTH_SOUTH, 0.25f);
     }};
+    private static final DriverConfiguration DEFAULT_DRIVER_CONFIG = new DriverConfiguration.Builder()
+            .acceleration(1)
+            .carLength(3)
+            .carWidth(2)
+            .maxVelocity(3)
+            .initialDistanceToIntersection(15)
+            .yellowLightGoProbability(0.0f)
+            .build();
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private ActorRef trafficLightsAgent;
     private ActorRef trafficGeneratorAgent;
@@ -93,7 +102,7 @@ public class Supervisor extends UntypedActor {
         previousSnapshot = new WorldSnapshot();
         currentSnapshot = previousSnapshot.copy();
         trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(getTrafficLightsConfiguration()), "trafficLights");
-        trafficGeneratorAgent = this.getContext().actorOf(TrafficGenerator.props(DEFAULT_PROBABILITY), "trafficGenerator");
+        trafficGeneratorAgent = this.getContext().actorOf(TrafficGenerator.props(DEFAULT_PROBABILITY, message.baseDriverConfiguration, MONITORED_DISTANCE_FROM_CROSSING), "trafficGenerator");
         trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(true), getSelf());
     }
 

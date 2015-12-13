@@ -1,6 +1,5 @@
 package pl.edu.agh.actors;
 
-import akka.actor.Actor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
 import akka.actor.UntypedActor;
@@ -14,22 +13,27 @@ import pl.edu.agh.model.DriverState;
 import pl.edu.agh.model.DriverWithConfiguration;
 import pl.edu.agh.model.Street;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
+import static java.lang.Math.*;
+import static java.lang.Math.min;
 import static pl.edu.agh.model.Street.NORTH_SOUTH;
 import static pl.edu.agh.model.Street.WEST_EAST;
 
 public class TrafficGenerator extends UntypedActor {
-    private static final Integer INITIAL_DISTANCE_TO_CROSSING = 15;
     private static final Integer DEFAULT_CAR_LENGTH = 2;
+    private final Random random = new Random();
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private final Map<Street, Float> newCarProbability;
+    private final DriverConfiguration baseConfiguration;
+    private final Integer initialDistanceToCrossing;
 
-    public TrafficGenerator(Map<Street, Float> newCarProbability) {
+    public TrafficGenerator(Map<Street, Float> newCarProbability,
+                            DriverConfiguration baseConfiguration,
+                            Integer initialDistanceToCrossing) {
         this.newCarProbability = newCarProbability;
+        this.baseConfiguration = baseConfiguration;
+        this.initialDistanceToCrossing = initialDistanceToCrossing;
     }
 
     @Override
@@ -71,11 +75,11 @@ public class TrafficGenerator extends UntypedActor {
     }
 
     private boolean isOnStreetBeginning(DriverState driver) {
-        return 15 >= driver.getPositionOnStreet() + DEFAULT_CAR_LENGTH;
+        return initialDistanceToCrossing >= driver.getPositionOnStreet() + DEFAULT_CAR_LENGTH;
     }
 
     private Optional<DriverWithConfiguration> generateTraffic(boolean isGenerationPossible, Street street) {
-        if (isGenerationPossible && (Math.random() < newCarProbability.get(street))) {
+        if (isGenerationPossible && (random() < newCarProbability.get(street))) {
             log.info("Generating car on street " + street);
             return generateDriverWithConfiguration();
         }
@@ -83,28 +87,30 @@ public class TrafficGenerator extends UntypedActor {
     }
 
     private Optional<DriverWithConfiguration> generateDriverWithConfiguration() {
-        DriverConfiguration driverConfiguration = getDriverConfiguration(INITIAL_DISTANCE_TO_CROSSING);
-        ActorRef driver = this.getContext().actorOf(Driver.props(getDriverConfiguration(INITIAL_DISTANCE_TO_CROSSING)));
+        DriverConfiguration driverConfiguration = generateRandomizedConfiguration(initialDistanceToCrossing);
+        log.info("Generated driver with configuration " + driverConfiguration);
+        ActorRef driver = this.getContext().actorOf(Driver.props(driverConfiguration));
         return Optional.of(new DriverWithConfiguration(driver, driverConfiguration));
     }
 
-    //TODO: this should be randomized with average parameters passed to TrafficGenerator
-    private DriverConfiguration getDriverConfiguration(Integer initialDistanceToIntersection) {
+    private DriverConfiguration generateRandomizedConfiguration(Integer initialDistanceToIntersection) {
         return new DriverConfiguration.Builder()
-                .acceleration(1)
-                .carLength(3)
-                .carWidth(2)
-                .maxVelocity(3)
+                .acceleration(max(1, baseConfiguration.acceleration + (int) random.nextGaussian()))
+                .carLength(max(1, baseConfiguration.carLength + (int) random.nextGaussian()))
                 .initialDistanceToIntersection(initialDistanceToIntersection)
-                .yellowLightGoProbability(0.0f)
+                .carWidth(baseConfiguration.carWidth)
+                .maxVelocity(max(1, baseConfiguration.maxVelocity + (int) random.nextGaussian()))
+                .yellowLightGoProbability((float)max(0, min(1, baseConfiguration.yellowLightGoProbability + random.nextGaussian()/2)))
                 .build();
     }
 
-    public static Props props(final Map<Street, Float> newCarProbability) {
+    public static Props props(final Map<Street, Float> newCarProbability,
+                              final DriverConfiguration baseConfiguration,
+                              final Integer initialDistanceToCrossing) {
         return Props.create(new Creator<TrafficGenerator>() {
             @Override
             public TrafficGenerator create() throws Exception {
-                return new TrafficGenerator(newCarProbability);
+                return new TrafficGenerator(newCarProbability, baseConfiguration, initialDistanceToCrossing);
             }
         });
     }
