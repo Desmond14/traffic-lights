@@ -20,6 +20,7 @@ import static pl.edu.agh.model.Street.NORTH_SOUTH;
 import static pl.edu.agh.model.Street.WEST_EAST;
 import static pl.edu.agh.model.TrafficLightColor.GREEN;
 import static pl.edu.agh.model.TrafficLightColor.RED;
+import static pl.edu.agh.model.TrafficLightColor.YELLOW;
 
 public class TrafficLights extends UntypedActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
@@ -27,6 +28,7 @@ public class TrafficLights extends UntypedActor {
     private final Map<Street, TrafficLightColor> streetToLightColor = new HashMap<Street, TrafficLightColor>();
     private final Map<Street, Integer> streetCounters = new HashMap<Street, Integer>();
     private Integer currentLightGreenSince = 0;
+    private Integer currentLightYellowSince = 0;
 
     public TrafficLights(TrafficLightsConfiguration configuration) {
         this.configuration = configuration;
@@ -40,6 +42,16 @@ public class TrafficLights extends UntypedActor {
     public void onReceive(Object message) throws Exception {
         IntersectionSurrounding intersectionSurrounding = (IntersectionSurrounding) message;
         updateCounters(intersectionSurrounding.streetToDrivers);
+        if (isYellowLightOn()) {
+            log.info("Light is yellow");
+            if (currentLightYellowSince < configuration.yellowLightDuration) {
+                currentLightYellowSince++;
+            } else {
+                switchLightsGreen();
+            }
+            return;
+        }
+
         currentLightGreenSince++;
         if (isAnyLightGreen() && currentLightGreenSince < configuration.minimumGreenTime) {
             log.info("Minimum green time not reached");
@@ -54,13 +66,17 @@ public class TrafficLights extends UntypedActor {
 
         if (noOneOnGreenDirection(getDriversOnGreen(intersectionSurrounding.streetToDrivers)) && isAnyoneAwaitingOnRed(getDriversOnRed(intersectionSurrounding.streetToDrivers))) {
             log.info("No one waiting on green. Switching lights");
-            switchLights();
+            switchLightsYellow();
         }
         if (redStreetColorCounter() > configuration.counterLimitValue) {
             log.info("Red light counter exceeded. Switching lights");
-            switchLights();
+            switchLightsYellow();
         }
         getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
+    }
+
+    private boolean isYellowLightOn() {
+        return currentLightYellowSince > 0;
     }
 
     private void updateCounters(Map<Street, Set<DriverState>> streetToDrivers) {
@@ -89,7 +105,19 @@ public class TrafficLights extends UntypedActor {
         return driversOnGreen == null || countAwaiting(driversOnGreen, configuration.longSupervisedDistance) == 0;
     }
 
-    private void switchLights() {
+    private void switchLightsYellow() {
+        log.info("Switching green light to yellow");
+        if (streetToLightColor.get(NORTH_SOUTH).equals(RED)) {
+            streetToLightColor.put(WEST_EAST, YELLOW);
+        } else {
+            streetToLightColor.put(NORTH_SOUTH, YELLOW);
+        }
+        currentLightYellowSince = 1;
+        currentLightGreenSince = 0;
+    }
+
+    private void switchLightsGreen() {
+        log.info("Switching light to green");
         if (streetToLightColor.get(NORTH_SOUTH).equals(RED)) {
             streetToLightColor.put(NORTH_SOUTH, GREEN);
             streetToLightColor.put(WEST_EAST, RED);
@@ -97,6 +125,7 @@ public class TrafficLights extends UntypedActor {
             streetToLightColor.put(NORTH_SOUTH, RED);
             streetToLightColor.put(WEST_EAST, GREEN);
         }
+        currentLightYellowSince = 0;
     }
 
     private Integer redStreetColorCounter() {
@@ -132,7 +161,7 @@ public class TrafficLights extends UntypedActor {
     }
 
     private Map<Street, TrafficLightColor> copy(Map<Street, TrafficLightColor> streetToLightColor) {
-        return new HashMap<Street, TrafficLightColor>(streetToLightColor);
+        return new HashMap<>(streetToLightColor);
     }
 
     public static Props props(final TrafficLightsConfiguration configuration) {
