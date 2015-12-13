@@ -6,6 +6,7 @@ public class TrafficLightsConfiguration {
     public final Integer shortSupervisedDistanceMaxCarsNo;
     public final Integer longSupervisedDistance;
     public final Integer minimumGreenTime;
+    public final Integer yellowLightDuration;
 
     public static class Builder {
         private Integer counterLimitValue;
@@ -13,6 +14,8 @@ public class TrafficLightsConfiguration {
         private Integer shortSupervisedDistanceMaxCarsNo;
         private Integer longSupervisedDistance;
         private Integer minimumGreenTime;
+        private Integer yellowLightDuration;
+
         public Builder counterLimitValue(Integer counterLimitValue) {
             this.counterLimitValue = counterLimitValue;
             return this;
@@ -38,6 +41,11 @@ public class TrafficLightsConfiguration {
             return this;
         }
 
+        public Builder yellowLightDuration(Integer yellowLightDuration) {
+            this.yellowLightDuration = yellowLightDuration;
+            return this;
+        }
+
         public TrafficLightsConfiguration build() {
             return new TrafficLightsConfiguration(this);
         }
@@ -50,6 +58,7 @@ public class TrafficLightsConfiguration {
         this.shortSupervisedDistanceMaxCarsNo = builder.shortSupervisedDistanceMaxCarsNo;
         this.longSupervisedDistance = builder.longSupervisedDistance;
         this.minimumGreenTime = builder.minimumGreenTime;
+        this.yellowLightDuration = builder.yellowLightDuration;
     }
 
 }

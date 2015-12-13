@@ -1,7 +1,6 @@
 package pl.edu.agh.model;
 
 import akka.actor.ActorRef;
-import pl.edu.agh.actors.Driver;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.IntersectionSurrounding;

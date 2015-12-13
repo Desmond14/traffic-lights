@@ -5,32 +5,16 @@ import akka.actor.UntypedActor;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import pl.edu.agh.configuration.DriverConfiguration;
-import pl.edu.agh.configuration.TrafficLightsConfiguration;
+import pl.edu.agh.configuration.WorldConfiguration;
 import pl.edu.agh.messages.*;
 import pl.edu.agh.model.DriverState;
 import pl.edu.agh.model.Street;
 import pl.edu.agh.model.TrafficLightColor;
 import pl.edu.agh.model.WorldSnapshot;
 
-import java.util.HashMap;
-import java.util.Map;
-
 public class Supervisor extends UntypedActor {
-    private static final Integer STREET_WIDTH = 3;
-    private static final Integer MONITORED_DISTANCE_FROM_CROSSING = 20;
-    private static final Map<Street, Float> DEFAULT_PROBABILITY = new HashMap<Street, Float>() {{
-        put(Street.WEST_EAST, 0.25f);
-        put(Street.NORTH_SOUTH, 0.25f);
-    }};
-    private static final DriverConfiguration DEFAULT_DRIVER_CONFIG = new DriverConfiguration.Builder()
-            .acceleration(1)
-            .carLength(3)
-            .carWidth(2)
-            .maxVelocity(3)
-            .initialDistanceToIntersection(15)
-            .yellowLightGoProbability(0.0f)
-            .build();
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
+    private WorldConfiguration worldConfiguration;
     private ActorRef trafficLightsAgent;
     private ActorRef trafficGeneratorAgent;
     private WorldSnapshot previousSnapshot;
@@ -41,7 +25,6 @@ public class Supervisor extends UntypedActor {
 
     @Override
     public void onReceive(Object message) throws Exception {
-        //TODO: handle initial generation of drivers
         if (message instanceof WorldInitialization) {
             init((WorldInitialization) message);
         } else if (message instanceof DriverUpdate) {
@@ -51,7 +34,7 @@ public class Supervisor extends UntypedActor {
                 if (detectCollisions()) {
                     log.info("Collision detected!");
                 }
-                if (iteration++ < 50) {
+                if (iteration++ < worldConfiguration.simulationIterations) {
                     broadcastWorldSnapshot();
                     countDown = carsInSimulation;
                 }
@@ -95,25 +78,21 @@ public class Supervisor extends UntypedActor {
         DriverConfiguration configuration = currentSnapshot.getDriverConfiguration(driver);
         Integer startPosition = state.getPositionOnStreet();
         Integer endPosition = startPosition + configuration.carLength;
-        return startPosition >= 0 && endPosition <= STREET_WIDTH;
+        return startPosition >= 0 && endPosition <= worldConfiguration.streetWidth;
     }
 
     private void init(WorldInitialization message) {
+        this.worldConfiguration = message.worldConfiguration;
         previousSnapshot = new WorldSnapshot();
         currentSnapshot = previousSnapshot.copy();
-        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(getTrafficLightsConfiguration()), "trafficLights");
-        trafficGeneratorAgent = this.getContext().actorOf(TrafficGenerator.props(DEFAULT_PROBABILITY, message.baseDriverConfiguration, MONITORED_DISTANCE_FROM_CROSSING), "trafficGenerator");
+        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(message.trafficLightsConfiguration), "trafficLights");
+        trafficGeneratorAgent = this.getContext().actorOf(
+                TrafficGenerator.props(
+                        message.worldConfiguration.newCarGenerationProbability,
+                        message.baseDriverConfiguration,
+                        message.worldConfiguration.monitoredDistanceFromCrossing),
+                "trafficGenerator");
         trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(true), getSelf());
-    }
-
-    private TrafficLightsConfiguration getTrafficLightsConfiguration() {
-        return new TrafficLightsConfiguration.Builder()
-                .longSupervisedDistance(10)
-                .counterLimitValue(20)
-                .minimumGreenTime(5)
-                .shortSupervisedDistance(4)
-                .shortSupervisedDistanceMaxCarsNo(2)
-                .build();
     }
 
     private void broadcastWorldSnapshot() {
