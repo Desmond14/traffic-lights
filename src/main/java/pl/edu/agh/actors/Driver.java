@@ -5,19 +5,15 @@ import akka.actor.UntypedActor;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import akka.japi.Creator;
-import edu.rit.numeric.Quadratic;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.SurroundingWorldSnapshot;
 
-import static java.lang.Double.isNaN;
-import static java.lang.Math.ceil;
-import static java.lang.Math.max;
 import static pl.edu.agh.model.TrafficLightColor.GREEN;
+import static pl.edu.agh.model.TrafficLightColor.YELLOW;
 
 public class Driver extends UntypedActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
-    private final Quadratic quadratic = new Quadratic();
     private final DriverConfiguration configuration;
     private Integer velocity = 0;
     private Integer distanceToIntersection;
@@ -33,8 +29,13 @@ public class Driver extends UntypedActor {
         Integer newVelocity;
         if (snapshot.trafficLightColor != GREEN && !isInSafeDistanceToIntersection(snapshot)) {
             if (isAbleToStopBeforeIntersection()) {
-                newVelocity = slowDown();
-                log.info("Driver is able to stop before intersection.");
+                if (snapshot.trafficLightColor == YELLOW && (Math.random() < configuration.yellowLightGoProbability)) {
+                    log.info("Trying to go on yellow light even though able to stop");
+                    newVelocity = followNagelSchreckenberg(snapshot);
+                } else {
+                    log.info("Driver is able to stop before intersection and will slow down");
+                    newVelocity = slowDown();
+                }
             } else {
                 newVelocity = followNagelSchreckenberg(snapshot);
                 log.info("Not able to stop before intersection. Will follow Nagel-Schreckenberg");
@@ -44,8 +45,8 @@ public class Driver extends UntypedActor {
             newVelocity = followNagelSchreckenberg(snapshot);
         }
 
-        distanceToIntersection -= (newVelocity + velocity)/2;
         velocity = newVelocity;
+        distanceToIntersection -= newVelocity;
         log.info("Distance to intersection: " + distanceToIntersection + " , velocity: " + velocity);
         getSender().tell(new DriverUpdate(distanceToIntersection, newVelocity), getSelf());
     }
@@ -54,29 +55,37 @@ public class Driver extends UntypedActor {
         if (distanceToIntersection <= 0 ) {
             return true;
         }
-        quadratic.solve(-configuration.acceleration / (double)2, -velocity, distanceToIntersection);
-        Integer timeToSlowDown = extractSolution(quadratic);
+        Integer timeToSlowDown = calculateTimeToStop();
         Integer timeToReachIntersection = (int) (distanceToIntersection / (double) velocity);
-        return timeToSlowDown + 2 <= timeToReachIntersection;
+        return timeToSlowDown + 1 <= timeToReachIntersection;
     }
 
     private boolean isAbleToStopBeforeIntersection() {
         if (distanceToIntersection <= 0 ) {
             return false;
         }
-        quadratic.solve(-configuration.acceleration / (double)2, -velocity, distanceToIntersection);
-        Integer timeToSlowDown = extractSolution(quadratic);
-        Integer timeToReachIntersection = (int) (distanceToIntersection / (double) velocity);
-        return timeToSlowDown <= timeToReachIntersection;
+        int distanceToStop = calculateDistanceToStop();
+        return distanceToStop < distanceToIntersection;
     }
 
-    private Integer extractSolution(Quadratic quadratic) {
-        if (quadratic.nRoots == 2) {
-            return (int) ceil(max(quadratic.x1, quadratic.x2));
-        } else if (quadratic.nRoots == 1) {
-            return (int) ceil((isNaN(quadratic.x1) ? quadratic.x2 : quadratic.x1));
+    private Integer calculateTimeToStop() {
+        int timeToStop = 0;
+        int velocityInStep = this.velocity;
+        while(velocityInStep > 0) {
+            velocityInStep -= configuration.acceleration;
+            timeToStop++;
         }
-        throw new IllegalArgumentException("Solution for quadratic equation not found!");
+        return timeToStop;
+    }
+
+    private int calculateDistanceToStop() {
+        int distanceToStop = 0;
+        int velocityInStep = this.velocity;
+        do {
+            velocityInStep -= configuration.acceleration;
+            distanceToStop += velocityInStep;
+        } while (velocityInStep > 0);
+        return distanceToStop;
     }
 
     private Integer followNagelSchreckenberg(SurroundingWorldSnapshot snapshot) {

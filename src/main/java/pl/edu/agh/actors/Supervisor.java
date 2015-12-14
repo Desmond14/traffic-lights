@@ -32,7 +32,7 @@ public class Supervisor extends UntypedActor {
             countDown--;
             if (countDown == 0) {
                 if (detectCollisions()) {
-                    log.info("Collision detected!");
+//                    log.info("Collision detected between ");
                 }
                 if (iteration++ < worldConfiguration.simulationIterations) {
                     broadcastWorldSnapshot();
@@ -62,6 +62,7 @@ public class Supervisor extends UntypedActor {
         for (ActorRef horizontalDriver : currentSnapshot.getDriversOnStreet(Street.WEST_EAST)) {
             for (ActorRef verticalDriver : currentSnapshot.getDriversOnStreet(Street.NORTH_SOUTH)) {
                 if (areBothOnIntersection(horizontalDriver, verticalDriver)) {
+                    log.info("Collision detected between " + horizontalDriver + " and " + verticalDriver);
                     return true;
                 }
             }
@@ -74,10 +75,11 @@ public class Supervisor extends UntypedActor {
     }
 
     private boolean isOnIntersection(ActorRef driver) {
-        DriverState state = currentSnapshot.getDriverState(driver);
+        DriverState currentState = currentSnapshot.getDriverState(driver);
+        DriverState previousState = currentSnapshot.getDriverState(driver);
         DriverConfiguration configuration = currentSnapshot.getDriverConfiguration(driver);
-        Integer startPosition = state.getPositionOnStreet();
-        Integer endPosition = startPosition + configuration.carLength;
+        Integer startPosition = previousState.getPositionOnStreet();
+        Integer endPosition = currentState.getPositionOnStreet() + configuration.carLength;
         return startPosition >= 0 && endPosition <= worldConfiguration.streetWidth;
     }
 
