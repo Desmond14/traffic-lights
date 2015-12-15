@@ -17,10 +17,12 @@ public class Supervisor extends UntypedActor {
     private WorldConfiguration worldConfiguration;
     private ActorRef trafficLightsAgent;
     private ActorRef trafficGeneratorAgent;
+    private ActorRef statisticsCollector;
     private WorldSnapshot previousSnapshot;
     private WorldSnapshot currentSnapshot;
     private int countDown = 0;
     private int carsInSimulation = 0;
+    private int detectedCollisions = 0;
     private int iteration = 0;
 
     @Override
@@ -32,11 +34,13 @@ public class Supervisor extends UntypedActor {
             countDown--;
             if (countDown == 0) {
                 if (detectCollisions()) {
-//                    log.info("Collision detected between ");
+                    detectedCollisions++;
                 }
                 if (iteration++ < worldConfiguration.simulationIterations) {
                     broadcastWorldSnapshot();
                     countDown = carsInSimulation;
+                } else {
+                    statisticsCollector.tell(new SimulationEnd(), getSelf());
                 }
             }
         } else if (message instanceof TrafficLightsUpdate) {
@@ -87,6 +91,7 @@ public class Supervisor extends UntypedActor {
         this.worldConfiguration = message.worldConfiguration;
         previousSnapshot = new WorldSnapshot();
         currentSnapshot = previousSnapshot.copy();
+        statisticsCollector = this.getContext().actorOf(StatisticsCollector.props(message.baseDriverConfiguration, message.worldConfiguration));
         trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(message.trafficLightsConfiguration), "trafficLights");
         trafficGeneratorAgent = this.getContext().actorOf(
                 TrafficGenerator.props(
@@ -103,6 +108,12 @@ public class Supervisor extends UntypedActor {
         }
         trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
         trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
+        statisticsCollector.tell(getStatsUpdate(), getSelf());
+        detectedCollisions = 0;
+    }
+
+    private StatsUpdate getStatsUpdate() {
+        return new StatsUpdate(detectedCollisions, carsInSimulation, currentSnapshot.getAllDriversStates());
     }
 
     private TrafficLightColor getLights(Street street) {

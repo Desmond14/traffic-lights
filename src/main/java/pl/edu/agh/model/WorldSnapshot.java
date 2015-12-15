@@ -140,6 +140,10 @@ public class WorldSnapshot {
         return nearestDistanceAhead;
     }
 
+    public Set<DriverState> getAllDriversStates() {
+        return new HashSet<>(driverToState.values());
+    }
+
     private boolean isAhead(ActorRef driver, ActorRef driverOnSameStreet) {
         return driverToState.get(driver).getPositionOnStreet() > driverToState.get(driverOnSameStreet).getPositionOnStreet();
     }
