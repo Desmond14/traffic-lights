@@ -24,6 +24,8 @@ public class Supervisor extends UntypedActor {
     private int carsInSimulation = 0;
     private int detectedCollisions = 0;
     private int iteration = 0;
+    private boolean trafficLightsUpdateReceived = false;
+    private boolean trafficGenerationUpdateReceived = false;
 
     @Override
     public void onReceive(Object message) throws Exception {
@@ -32,19 +34,9 @@ public class Supervisor extends UntypedActor {
         } else if (message instanceof DriverUpdate) {
             updateWorldState((DriverUpdate) message);
             countDown--;
-            if (countDown == 0) {
-                if (detectCollisions()) {
-                    detectedCollisions++;
-                }
-                if (iteration++ < worldConfiguration.simulationIterations) {
-                    broadcastWorldSnapshot();
-                    countDown = carsInSimulation;
-                } else {
-                    statisticsCollector.tell(new SimulationEnd(), getSelf());
-                }
-            }
         } else if (message instanceof TrafficLightsUpdate) {
             currentSnapshot.update((TrafficLightsUpdate) message);
+            trafficLightsUpdateReceived = true;
         } else if (message instanceof TrafficGenerationMessage) {
             previousSnapshot.update((TrafficGenerationMessage) message);
             currentSnapshot.update((TrafficGenerationMessage) message);
@@ -58,8 +50,31 @@ public class Supervisor extends UntypedActor {
                 log.info("Broadcasting initial info");
                 countDown = carsInSimulation;
                 broadcastWorldSnapshot();
+            } else {
+                trafficGenerationUpdateReceived = true;
             }
         }
+        if (iterationEnded()) {
+            if (detectCollisions()) {
+                detectedCollisions++;
+            }
+            if (iteration++ < worldConfiguration.simulationIterations) {
+                broadcastWorldSnapshot();
+                resetCounters();
+            } else {
+                statisticsCollector.tell(new SimulationEnd(), getSelf());
+            }
+        }
+    }
+
+    private boolean iterationEnded() {
+        return countDown == 0 && trafficLightsUpdateReceived && trafficGenerationUpdateReceived;
+    }
+
+    private void resetCounters() {
+        countDown = carsInSimulation;
+        trafficGenerationUpdateReceived = false;
+        trafficLightsUpdateReceived = false;
     }
 
     private boolean detectCollisions() {
@@ -91,7 +106,7 @@ public class Supervisor extends UntypedActor {
         this.worldConfiguration = message.worldConfiguration;
         previousSnapshot = new WorldSnapshot();
         currentSnapshot = previousSnapshot.copy();
-        statisticsCollector = this.getContext().actorOf(StatisticsCollector.props(message.baseDriverConfiguration, message.worldConfiguration));
+        statisticsCollector = this.getContext().actorOf(StatisticsCollector.props(message.baseDriverConfiguration, message.worldConfiguration, message.resultCallback));
         trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(message.trafficLightsConfiguration), "trafficLights");
         trafficGeneratorAgent = this.getContext().actorOf(
                 TrafficGenerator.props(
@@ -121,6 +136,13 @@ public class Supervisor extends UntypedActor {
     }
 
     private void updateWorldState(DriverUpdate message) {
-        currentSnapshot.update(getSender(), message);
+        if (Math.abs(message.newDistanceToIntersection) > worldConfiguration.monitoredDistanceFromCrossing) {
+            log.debug("Removing actor from simulation " + getSender());
+            currentSnapshot.remove(getSender());
+            context().stop(getSender());
+            carsInSimulation--;
+        } else {
+            currentSnapshot.update(getSender(), message);
+        }
     }
 }

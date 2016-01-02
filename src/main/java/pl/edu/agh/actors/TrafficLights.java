@@ -49,6 +49,7 @@ public class TrafficLights extends UntypedActor {
             } else {
                 switchLightsGreen();
             }
+            getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
             return;
         }
 

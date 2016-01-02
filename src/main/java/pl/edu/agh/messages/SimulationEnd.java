@@ -1,4 +1,4 @@
 package pl.edu.agh.messages;
 
-public class SimulationEnd {
+public final class SimulationEnd {
 }

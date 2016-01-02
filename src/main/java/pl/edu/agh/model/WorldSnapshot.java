@@ -41,6 +41,11 @@ public class WorldSnapshot {
         );
     }
 
+    public void remove(ActorRef driver) {
+        driverToConfiguration.remove(driver);
+        driverToState.remove(driver);
+    }
+
     public void update(TrafficLightsUpdate update) {
         this.streetToLightColor = update.streetToLightColor;
     }

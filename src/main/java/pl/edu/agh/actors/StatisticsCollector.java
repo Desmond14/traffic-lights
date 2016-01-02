@@ -7,24 +7,29 @@ import akka.event.LoggingAdapter;
 import akka.japi.Creator;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.configuration.WorldConfiguration;
-import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.SimulationEnd;
 import pl.edu.agh.messages.StatsUpdate;
 import pl.edu.agh.model.DriverState;
 import pl.edu.agh.model.IterationStats;
+import pl.edu.agh.model.SimulationStats;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 
 public class StatisticsCollector extends UntypedActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private final DriverConfiguration baseConfiguration;
     private final WorldConfiguration worldConfiguration;
+    private final BlockingQueue<SimulationStats> resultCallback;
     private final List<IterationStats> statsPerIteration;
 
-    public StatisticsCollector(DriverConfiguration baseConfiguration, WorldConfiguration worldConfiguration) {
+    public StatisticsCollector(DriverConfiguration baseConfiguration,
+                               WorldConfiguration worldConfiguration,
+                               BlockingQueue<SimulationStats> resultCallback) {
         this.baseConfiguration = baseConfiguration;
         this.worldConfiguration = worldConfiguration;
+        this.resultCallback = resultCallback;
         this.statsPerIteration = new ArrayList<>();
     }
 
@@ -34,6 +39,7 @@ public class StatisticsCollector extends UntypedActor {
             saveIterationStatistics((StatsUpdate)message);
         } else if (message instanceof SimulationEnd) {
             saveStatisticsToFile();
+            resultCallback.offer(new SimulationStats());
         }
     }
 
@@ -79,11 +85,13 @@ public class StatisticsCollector extends UntypedActor {
         return totalVelocity / totalCars;
     }
 
-    public static Props props(final DriverConfiguration baseConfiguration, final WorldConfiguration worldConfiguration) {
+    public static Props props(final DriverConfiguration baseConfiguration,
+                              final WorldConfiguration worldConfiguration,
+                              final BlockingQueue<SimulationStats> resultCallback) {
         return Props.create(new Creator<StatisticsCollector>() {
             @Override
             public StatisticsCollector create() throws Exception {
-                return new StatisticsCollector(baseConfiguration, worldConfiguration);
+                return new StatisticsCollector(baseConfiguration, worldConfiguration, resultCallback);
             }
         });
     }

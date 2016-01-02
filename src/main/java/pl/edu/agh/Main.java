@@ -9,11 +9,14 @@ import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.configuration.TrafficLightsConfiguration;
 import pl.edu.agh.configuration.WorldConfiguration;
 import pl.edu.agh.messages.WorldInitialization;
+import pl.edu.agh.model.SimulationStats;
 import pl.edu.agh.model.Street;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class Main {
     private static final String BASE_DRIVER_CONFIGURATION_FILENAME = "/drivers.properties";
@@ -23,15 +26,19 @@ public class Main {
     public static void main(String[] args) throws InterruptedException {
         ActorSystem system = ActorSystem.create("IntersectionSimulation");
         ActorRef supervisor = system.actorOf(Props.create(Supervisor.class), "supervisor");
+        BlockingQueue<SimulationStats> resultCallback = new LinkedBlockingQueue<>();
         supervisor.tell(
                 new WorldInitialization(
                         loadBaseDriverConfiguration(),
                         loadTrafficLightsConfiguration(),
-                        loadWorldConfiguration()
-                ), null
+                        loadWorldConfiguration(),
+                        resultCallback), null
         );
-        Thread.sleep(5000);
-        system.shutdown();
+        try {
+            SimulationStats result = resultCallback.take();
+        } finally {
+            system.shutdown();
+        }
     }
 
     private static DriverConfiguration loadBaseDriverConfiguration() {
