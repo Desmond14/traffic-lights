@@ -58,7 +58,11 @@ public class Supervisor extends UntypedActor {
         previousSnapshot = new WorldSnapshot();
         currentSnapshot = previousSnapshot.copy();
         statisticsCollectorAgent = this.getContext().actorOf(StatisticsCollector.props(message.baseDriverConfiguration, message.worldConfiguration, message.resultCallback));
-        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(message.trafficLightsConfiguration), "trafficLights");
+        if (worldConfiguration.useSimpleLights) {
+            trafficLightsAgent = this.getContext().actorOf(SimpleTrafficLights.props(message.trafficLightsConfiguration), "simpleTrafficLights");
+        } else {
+            trafficLightsAgent = this.getContext().actorOf(SelfOrganizingTrafficLights.props(message.trafficLightsConfiguration), "selfOrganizingTrafficLights");
+        }
         trafficGeneratorAgent = this.getContext().actorOf(
                 TrafficGenerator.props(
                         message.worldConfiguration.newCarGenerationProbability,

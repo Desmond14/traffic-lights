@@ -1,13 +1,9 @@
 package pl.edu.agh.actors;
 
 import akka.actor.Props;
-import akka.actor.UntypedActor;
-import akka.event.Logging;
-import akka.event.LoggingAdapter;
 import akka.japi.Creator;
 import pl.edu.agh.configuration.TrafficLightsConfiguration;
 import pl.edu.agh.messages.IntersectionSurrounding;
-import pl.edu.agh.messages.TrafficLightsUpdate;
 import pl.edu.agh.model.DriverState;
 import pl.edu.agh.model.Street;
 import pl.edu.agh.model.TrafficLightColor;
@@ -20,77 +16,49 @@ import static pl.edu.agh.model.Street.NORTH_SOUTH;
 import static pl.edu.agh.model.Street.WEST_EAST;
 import static pl.edu.agh.model.TrafficLightColor.GREEN;
 import static pl.edu.agh.model.TrafficLightColor.RED;
-import static pl.edu.agh.model.TrafficLightColor.YELLOW;
 
-public class TrafficLights extends UntypedActor {
-    private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
-    private final TrafficLightsConfiguration configuration;
-    private final Map<Street, TrafficLightColor> streetToLightColor = new HashMap<Street, TrafficLightColor>();
+public class SelfOrganizingTrafficLights extends AbstractTrafficLights {
     private final Map<Street, Integer> streetCounters = new HashMap<Street, Integer>();
-    private Integer currentLightGreenSince = 0;
-    private Integer currentLightYellowSince = 0;
 
-    public TrafficLights(TrafficLightsConfiguration configuration) {
-        this.configuration = configuration;
-        streetToLightColor.put(WEST_EAST, GREEN);
-        streetToLightColor.put(NORTH_SOUTH, RED);
+    public SelfOrganizingTrafficLights(TrafficLightsConfiguration configuration) {
+        super(configuration);
         streetCounters.put(WEST_EAST, 0);
         streetCounters.put(NORTH_SOUTH, 0);
     }
 
     @Override
-    public void onReceive(Object message) throws Exception {
-        IntersectionSurrounding intersectionSurrounding = (IntersectionSurrounding) message;
+    protected void updateState(IntersectionSurrounding intersectionSurrounding) {
         updateCounters(intersectionSurrounding.streetToDrivers);
-        if (isYellowLightOn()) {
-            log.info("Light is yellow");
-            if (currentLightYellowSince < configuration.yellowLightDuration) {
-                currentLightYellowSince++;
-            } else {
-                switchLightsGreen();
-            }
-            getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
-            return;
-        }
+    }
 
-        currentLightGreenSince++;
-        if (isAnyLightGreen() && currentLightGreenSince < configuration.minimumGreenTime) {
+    @Override
+    protected boolean shouldSwitchGreenToYellow(IntersectionSurrounding intersectionSurrounding) {
+        if (getCurrentLightGreenSince() < configuration.minimumGreenTime) {
             log.info("Minimum green time not reached");
-            getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
-            return;
+            return false;
         }
-        if (isAnyLightGreen() && fewCarsLeftInShortDistance(getDriversOnGreen(intersectionSurrounding.streetToDrivers))) {
+        if (fewCarsLeftInShortDistance(getDriversOnGreen(intersectionSurrounding.streetToDrivers))) {
             log.info("Few cars left in short distance");
-            getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
-            return;
+            return false;
         }
-
         if (noOneOnGreenDirection(getDriversOnGreen(intersectionSurrounding.streetToDrivers)) && isAnyoneAwaitingOnRed(getDriversOnRed(intersectionSurrounding.streetToDrivers))) {
             log.info("No one waiting on green. Switching lights");
-            switchLightsYellow();
+            return true;
         }
         if (redStreetColorCounter() > configuration.counterLimitValue) {
             log.info("Red light counter exceeded. Switching lights");
-            switchLightsYellow();
+            return true;
         }
-        getSender().tell(new TrafficLightsUpdate(copy(streetToLightColor)), getSelf());
-    }
-
-    private boolean isYellowLightOn() {
-        return currentLightYellowSince > 0;
+        return false;
     }
 
     private void updateCounters(Map<Street, Set<DriverState>> streetToDrivers) {
-        if (streetToLightColor.get(NORTH_SOUTH).equals(RED)) {
+        if (getLightColorOn(NORTH_SOUTH).equals(RED)) {
             streetCounters.put(NORTH_SOUTH, streetCounters.get(NORTH_SOUTH) + countAwaiting(streetToDrivers.get(NORTH_SOUTH), configuration.longSupervisedDistance));
         }
-        if (streetToLightColor.get(WEST_EAST).equals(RED)) {
+        if (getLightColorOn(WEST_EAST).equals(RED)) {
             streetCounters.put(WEST_EAST, streetCounters.get(WEST_EAST) + countAwaiting(streetToDrivers.get(WEST_EAST), configuration.longSupervisedDistance));
         }
-    }
-
-    private boolean isAnyLightGreen() {
-        return streetToLightColor.get(NORTH_SOUTH).equals(GREEN) || streetToLightColor.get(WEST_EAST).equals(GREEN);
     }
 
     private boolean fewCarsLeftInShortDistance(Set<DriverState> drivers) {
@@ -106,31 +74,8 @@ public class TrafficLights extends UntypedActor {
         return driversOnGreen == null || countAwaiting(driversOnGreen, configuration.longSupervisedDistance) == 0;
     }
 
-    private void switchLightsYellow() {
-        log.info("Switching green light to yellow");
-        if (streetToLightColor.get(NORTH_SOUTH).equals(RED)) {
-            streetToLightColor.put(WEST_EAST, YELLOW);
-        } else {
-            streetToLightColor.put(NORTH_SOUTH, YELLOW);
-        }
-        currentLightYellowSince = 1;
-        currentLightGreenSince = 0;
-    }
-
-    private void switchLightsGreen() {
-        log.info("Switching light to green");
-        if (streetToLightColor.get(NORTH_SOUTH).equals(RED)) {
-            streetToLightColor.put(NORTH_SOUTH, GREEN);
-            streetToLightColor.put(WEST_EAST, RED);
-        } else {
-            streetToLightColor.put(NORTH_SOUTH, RED);
-            streetToLightColor.put(WEST_EAST, GREEN);
-        }
-        currentLightYellowSince = 0;
-    }
-
     private Integer redStreetColorCounter() {
-        if (streetToLightColor.get(NORTH_SOUTH).equals(RED)) {
+        if (getLightColorOn(NORTH_SOUTH).equals(RED)) {
             return streetCounters.get(NORTH_SOUTH);
         }
         return streetCounters.get(WEST_EAST);
@@ -145,7 +90,7 @@ public class TrafficLights extends UntypedActor {
     }
 
     private Set<DriverState> getDriversOn(Map<Street, Set<DriverState>> streetToDrivers, TrafficLightColor color) {
-        if (streetToLightColor.get(NORTH_SOUTH).equals(color)) {
+        if (getLightColorOn(NORTH_SOUTH).equals(color)) {
             return streetToDrivers.get(NORTH_SOUTH);
         }
         return streetToDrivers.get(WEST_EAST);
@@ -166,9 +111,9 @@ public class TrafficLights extends UntypedActor {
     }
 
     public static Props props(final TrafficLightsConfiguration configuration) {
-        return Props.create(new Creator<TrafficLights>() {
-            public TrafficLights create() throws Exception {
-                return new TrafficLights(configuration);
+        return Props.create(new Creator<SelfOrganizingTrafficLights>() {
+            public SelfOrganizingTrafficLights create() throws Exception {
+                return new SelfOrganizingTrafficLights(configuration);
             }
         });
     }

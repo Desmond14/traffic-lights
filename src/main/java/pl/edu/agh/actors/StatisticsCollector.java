@@ -53,6 +53,9 @@ public class StatisticsCollector extends UntypedActor {
     }
 
     private float calculateAverageVelocity(StatsUpdate message) {
+        if (message.carsInSimulation == 0) {
+            return 0.0f;
+        }
         int summaryVelocity = 0;
         for (DriverState driverState : message.driverStates) {
             summaryVelocity += driverState.getCurrentVelocity();

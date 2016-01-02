@@ -77,6 +77,8 @@ public class Main {
                 .shortSupervisedDistanceMaxCarsNo(loadInt(prop, "shortSupervisedDistanceMaxCarNo"))
                 .minimumGreenTime(loadInt(prop, "minimumGreenTime"))
                 .yellowLightDuration(loadInt(prop, "yellowLightDuration"))
+                .northSouthGreenLightDuration(loadInt(prop, "northSouthGreenLightDuration"))
+                .westEastGreenLightDuration(loadInt(prop, "westEastGreenLightDuration"))
                 .build();
         return lightsConfiguration;
     }
