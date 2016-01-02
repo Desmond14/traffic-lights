@@ -7,25 +7,17 @@ import akka.event.LoggingAdapter;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.configuration.WorldConfiguration;
 import pl.edu.agh.messages.*;
-import pl.edu.agh.model.DriverState;
-import pl.edu.agh.model.Street;
-import pl.edu.agh.model.TrafficLightColor;
-import pl.edu.agh.model.WorldSnapshot;
+import pl.edu.agh.model.*;
 
 public class Supervisor extends UntypedActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
     private WorldConfiguration worldConfiguration;
     private ActorRef trafficLightsAgent;
     private ActorRef trafficGeneratorAgent;
-    private ActorRef statisticsCollector;
+    private ActorRef statisticsCollectorAgent;
     private WorldSnapshot previousSnapshot;
     private WorldSnapshot currentSnapshot;
-    private int countDown = 0;
-    private int carsInSimulation = 0;
-    private int detectedCollisions = 0;
-    private int iteration = 0;
-    private boolean trafficLightsUpdateReceived = false;
-    private boolean trafficGenerationUpdateReceived = false;
+    private IterationStatus iterationStatus = new IterationStatus();
 
     @Override
     public void onReceive(Object message) throws Exception {
@@ -33,48 +25,66 @@ public class Supervisor extends UntypedActor {
             init((WorldInitialization) message);
         } else if (message instanceof DriverUpdate) {
             updateWorldState((DriverUpdate) message);
-            countDown--;
+            iterationStatus.incrementDriverUpdatesCounter();
         } else if (message instanceof TrafficLightsUpdate) {
             currentSnapshot.update((TrafficLightsUpdate) message);
-            trafficLightsUpdateReceived = true;
+            iterationStatus.markTrafficLightsUpdateReceived();
         } else if (message instanceof TrafficGenerationMessage) {
             previousSnapshot.update((TrafficGenerationMessage) message);
             currentSnapshot.update((TrafficGenerationMessage) message);
-            if (((TrafficGenerationMessage) message).newTraffic.get(Street.WEST_EAST).isPresent()) {
-                carsInSimulation++;
-            }
-            if (((TrafficGenerationMessage) message).newTraffic.get(Street.NORTH_SOUTH).isPresent()) {
-                carsInSimulation++;
-            }
             if (((TrafficGenerationMessage) message).isInitial) {
                 log.info("Broadcasting initial info");
-                countDown = carsInSimulation;
                 broadcastWorldSnapshot();
+                iterationStatus.startNewIteration(currentSnapshot.getAllDrivers().size());
             } else {
-                trafficGenerationUpdateReceived = true;
+                iterationStatus.markTrafficGenerationUpdateReceived();
             }
         }
-        if (iterationEnded()) {
+        if (iterationStatus.areAllUpdatesReceived()) {
             if (detectCollisions()) {
-                detectedCollisions++;
+                iterationStatus.incrementDetectedCollisionsCounter();
             }
-            if (iteration++ < worldConfiguration.simulationIterations) {
+            if (iterationStatus.getIterationNo() < worldConfiguration.simulationIterations) {
                 broadcastWorldSnapshot();
-                resetCounters();
+                iterationStatus.startNewIteration(currentSnapshot.getAllDrivers().size());
             } else {
-                statisticsCollector.tell(new SimulationEnd(), getSelf());
+                statisticsCollectorAgent.tell(new SimulationEnd(), getSelf());
             }
         }
     }
 
-    private boolean iterationEnded() {
-        return countDown == 0 && trafficLightsUpdateReceived && trafficGenerationUpdateReceived;
+    private void init(WorldInitialization message) {
+        this.worldConfiguration = message.worldConfiguration;
+        previousSnapshot = new WorldSnapshot();
+        currentSnapshot = previousSnapshot.copy();
+        statisticsCollectorAgent = this.getContext().actorOf(StatisticsCollector.props(message.baseDriverConfiguration, message.worldConfiguration, message.resultCallback));
+        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(message.trafficLightsConfiguration), "trafficLights");
+        trafficGeneratorAgent = this.getContext().actorOf(
+                TrafficGenerator.props(
+                        message.worldConfiguration.newCarGenerationProbability,
+                        message.baseDriverConfiguration,
+                        message.worldConfiguration.monitoredDistanceFromCrossing),
+                "trafficGenerator");
+        trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(true), getSelf());
     }
 
-    private void resetCounters() {
-        countDown = carsInSimulation;
-        trafficGenerationUpdateReceived = false;
-        trafficLightsUpdateReceived = false;
+    private void updateWorldState(DriverUpdate message) {
+        if (message.newDistanceToIntersection < -worldConfiguration.monitoredDistanceFromCrossing) {
+            log.info("Removing actor from simulation " + getSender());
+            currentSnapshot.remove(getSender());
+            context().stop(getSender());
+        } else {
+            currentSnapshot.update(getSender(), message);
+        }
+    }
+
+    private void broadcastWorldSnapshot() {
+        for (ActorRef driver : currentSnapshot.getAllDrivers()) {
+            driver.tell(new SurroundingWorldSnapshot(currentSnapshot.getCarAheadDistance(driver), null, getLights(currentSnapshot.getDriverState(driver).getStreet())), getSelf());
+        }
+        trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
+        trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
+        statisticsCollectorAgent.tell(getStatsUpdate(), getSelf());
     }
 
     private boolean detectCollisions() {
@@ -102,47 +112,11 @@ public class Supervisor extends UntypedActor {
         return startPosition >= 0 && endPosition <= worldConfiguration.streetWidth;
     }
 
-    private void init(WorldInitialization message) {
-        this.worldConfiguration = message.worldConfiguration;
-        previousSnapshot = new WorldSnapshot();
-        currentSnapshot = previousSnapshot.copy();
-        statisticsCollector = this.getContext().actorOf(StatisticsCollector.props(message.baseDriverConfiguration, message.worldConfiguration, message.resultCallback));
-        trafficLightsAgent = this.getContext().actorOf(TrafficLights.props(message.trafficLightsConfiguration), "trafficLights");
-        trafficGeneratorAgent = this.getContext().actorOf(
-                TrafficGenerator.props(
-                        message.worldConfiguration.newCarGenerationProbability,
-                        message.baseDriverConfiguration,
-                        message.worldConfiguration.monitoredDistanceFromCrossing),
-                "trafficGenerator");
-        trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(true), getSelf());
-    }
-
-    private void broadcastWorldSnapshot() {
-        for (ActorRef driver : currentSnapshot.getAllDrivers()) {
-            driver.tell(new SurroundingWorldSnapshot(currentSnapshot.getCarAheadDistance(driver), null, getLights(currentSnapshot.getDriverState(driver).getStreet())), getSelf());
-        }
-        trafficLightsAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
-        trafficGeneratorAgent.tell(currentSnapshot.getIntersectionSurrouding(false), getSelf());
-        statisticsCollector.tell(getStatsUpdate(), getSelf());
-        detectedCollisions = 0;
-    }
-
     private StatsUpdate getStatsUpdate() {
-        return new StatsUpdate(detectedCollisions, carsInSimulation, currentSnapshot.getAllDriversStates());
+        return new StatsUpdate(iterationStatus.getDetectedCollisionsCounter(), iterationStatus.getCarsInIteration(), currentSnapshot.getAllDriversStates());
     }
 
     private TrafficLightColor getLights(Street street) {
         return currentSnapshot.getLightColorOnStreet(street);
-    }
-
-    private void updateWorldState(DriverUpdate message) {
-        if (Math.abs(message.newDistanceToIntersection) > worldConfiguration.monitoredDistanceFromCrossing) {
-            log.debug("Removing actor from simulation " + getSender());
-            currentSnapshot.remove(getSender());
-            context().stop(getSender());
-            carsInSimulation--;
-        } else {
-            currentSnapshot.update(getSender(), message);
-        }
     }
 }
