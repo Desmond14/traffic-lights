@@ -1,6 +1,7 @@
 package pl.edu.agh.model;
 
 import akka.actor.ActorRef;
+import com.google.common.collect.ImmutableMap;
 import pl.edu.agh.configuration.DriverConfiguration;
 import pl.edu.agh.messages.DriverUpdate;
 import pl.edu.agh.messages.IntersectionSurrounding;
@@ -11,6 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static pl.edu.agh.model.Street.NORTH_SOUTH;
 import static pl.edu.agh.model.Street.WEST_EAST;
@@ -28,16 +30,19 @@ public class WorldSnapshot {
         streetToLightColor.put(NORTH_SOUTH, RED);
     }
 
-    public WorldSnapshot(Map<ActorRef,DriverState> driverToState, Map<ActorRef, DriverConfiguration> driverToConfiguration) {
+    public WorldSnapshot(Map<ActorRef,DriverState> driverToState,
+                         Map<ActorRef, DriverConfiguration> driverToConfiguration,
+                         Map<Street, TrafficLightColor> streetToLightColor) {
         this.driverToState = driverToState;
         this.driverToConfiguration = driverToConfiguration;
+        this.streetToLightColor = streetToLightColor;
     }
 
     public void update(ActorRef driver, DriverUpdate updateMessage) {
         driverToState.put(driver, new DriverState(
-                driverToState.get(driver).getStreet(),
-                updateMessage.newDistanceToIntersection,
-                updateMessage.currentVelocity)
+                        driverToState.get(driver).getStreet(),
+                        updateMessage.newDistanceToIntersection,
+                        updateMessage.currentVelocity)
         );
     }
 
@@ -68,7 +73,7 @@ public class WorldSnapshot {
     }
 
     public Set<ActorRef> getAllDrivers() {
-        return driverToState.keySet();
+        return new HashSet<>(driverToState.keySet());
     }
 
     public TrafficLightColor getLightColorOnStreet(Street street) {
@@ -76,9 +81,15 @@ public class WorldSnapshot {
     }
 
     public Set<ActorRef> getDriversOnStreet(Street street) {
-        Set<ActorRef> result = new HashSet<ActorRef>();
-        for (ActorRef driver : driverToState.keySet()) {
-            if (street.equals(driverToState.get(driver).getStreet())) {
+        Set<ActorRef> result = driverToState.keySet().stream().filter(driver -> street.equals(driverToState.get(driver).getStreet())).collect(Collectors.toSet());
+        return result;
+    }
+
+    public Set<ActorRef> getDriversBeforeIntersectionOnStreet(Street street) {
+        Set<ActorRef> result = new HashSet<>();
+        for (ActorRef driver : getDriversOnStreet(street)) {
+            DriverState state = driverToState.get(driver);
+            if (state.getPositionOnStreet() > 0) {
                 result.add(driver);
             }
         }
@@ -86,20 +97,11 @@ public class WorldSnapshot {
     }
 
     public WorldSnapshot copy() {
-        return new WorldSnapshot(copy(driverToState), driverToConfiguration);
-    }
-
-    private Map<ActorRef, DriverState> copy(Map<ActorRef, DriverState> original) {
-        Map<ActorRef, DriverState> result = new HashMap<ActorRef, DriverState>();
-        for (ActorRef driver : original.keySet()) {
-            DriverState originalState = original.get(driver);
-            result.put(driver, new DriverState(
-                    originalState.getStreet(),
-                    originalState.getPositionOnStreet(),
-                    originalState.getCurrentVelocity()
-            ));
-        }
-        return result;
+        return new WorldSnapshot(
+                new HashMap<>(driverToState),
+                new HashMap<>(driverToConfiguration),
+                new HashMap<>(streetToLightColor)
+        );
     }
 
     public DriverState getDriverState(ActorRef driver) {

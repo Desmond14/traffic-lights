@@ -1,17 +1,15 @@
 package pl.edu.agh.messages;
 
-import pl.edu.agh.model.DriverState;
-
-import java.util.Set;
+import pl.edu.agh.model.WorldSnapshot;
 
 public class StatsUpdate {
     public final int detectedCollisions;
-    public final int carsInSimulation;
-    public final Set<DriverState> driverStates;
+    public final WorldSnapshot previousSnapshot;
+    public final WorldSnapshot currentSnapshot;
 
-    public StatsUpdate(int detectedCollisions, int carsInSimulation, Set<DriverState> allDriversStates) {
+    public StatsUpdate(int detectedCollisions, WorldSnapshot previousSnapshot, WorldSnapshot currentSnapshot) {
         this.detectedCollisions = detectedCollisions;
-        this.carsInSimulation = carsInSimulation;
-        this.driverStates = allDriversStates;
+        this.previousSnapshot = previousSnapshot;
+        this.currentSnapshot = currentSnapshot;
     }
 }

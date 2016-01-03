@@ -50,6 +50,7 @@ public class Supervisor extends UntypedActor {
             } else {
                 statisticsCollectorAgent.tell(new SimulationEnd(), getSelf());
             }
+            previousSnapshot = currentSnapshot.copy();
         }
     }
 
@@ -109,15 +110,14 @@ public class Supervisor extends UntypedActor {
 
     private boolean isOnIntersection(ActorRef driver) {
         DriverState currentState = currentSnapshot.getDriverState(driver);
-        DriverState previousState = currentSnapshot.getDriverState(driver);
+        DriverState previousState = previousSnapshot.getDriverState(driver);
         DriverConfiguration configuration = currentSnapshot.getDriverConfiguration(driver);
-        Integer startPosition = previousState.getPositionOnStreet();
-        Integer endPosition = currentState.getPositionOnStreet() + configuration.carLength;
-        return startPosition >= 0 && endPosition <= worldConfiguration.streetWidth;
+        return (previousState.getPositionOnStreet()+configuration.carLength-1 > -worldConfiguration.streetWidth)
+                && (currentState.getPositionOnStreet() < 1);
     }
 
     private StatsUpdate getStatsUpdate() {
-        return new StatsUpdate(iterationStatus.getDetectedCollisionsCounter(), iterationStatus.getCarsInIteration(), currentSnapshot.getAllDriversStates());
+        return new StatsUpdate(iterationStatus.getDetectedCollisionsCounter(), previousSnapshot.copy(), currentSnapshot.copy());
     }
 
     private TrafficLightColor getLights(Street street) {
