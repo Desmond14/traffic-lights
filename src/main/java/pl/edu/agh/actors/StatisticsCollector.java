@@ -13,15 +13,13 @@ import pl.edu.agh.messages.SimulationEnd;
 import pl.edu.agh.messages.StatsUpdate;
 import pl.edu.agh.model.*;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 
 import static pl.edu.agh.model.Street.NORTH_SOUTH;
 import static pl.edu.agh.model.Street.WEST_EAST;
 import static pl.edu.agh.model.TrafficLightColor.GREEN;
+import static pl.edu.agh.model.TrafficLightColor.YELLOW;
 
 public class StatisticsCollector extends UntypedActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().system(), this);
@@ -29,6 +27,8 @@ public class StatisticsCollector extends UntypedActor {
     private final WorldConfiguration worldConfiguration;
     private final BlockingQueue<SimulationStats> resultCallback;
     private final List<IterationStats> statsPerIteration;
+    private final Map<Street, List<Integer>> greenLightDurations;
+    private int currentLightGreenSince = 0;
 
     public StatisticsCollector(DriverConfiguration baseConfiguration,
                                WorldConfiguration worldConfiguration,
@@ -36,17 +36,55 @@ public class StatisticsCollector extends UntypedActor {
         this.baseConfiguration = baseConfiguration;
         this.worldConfiguration = worldConfiguration;
         this.resultCallback = resultCallback;
-        this.statsPerIteration = new ArrayList<>();
+        this.statsPerIteration = new LinkedList<>();
+        this.greenLightDurations = new HashMap<>();
+        greenLightDurations.put(NORTH_SOUTH, new LinkedList<>());
+        greenLightDurations.put(WEST_EAST, new LinkedList<>());
     }
 
     @Override
     public void onReceive(Object message) throws Exception {
         if (message instanceof StatsUpdate) {
-            saveIterationStatistics((StatsUpdate)message);
+            saveIterationStatistics((StatsUpdate) message);
+            if (justChangedToYellow((StatsUpdate) message)) {
+                saveGreenLightDuration((StatsUpdate) message);
+            } else if (justChangedToGreen((StatsUpdate) message)) {
+                currentLightGreenSince = 0;
+            } else if (hasGreenLightOn(((StatsUpdate) message).currentSnapshot)) {
+                currentLightGreenSince++;
+            }
         } else if (message instanceof SimulationEnd) {
-            saveStatisticsToFile();
-            resultCallback.offer(new SimulationStats());
+            SimulationStats simulationStats = calculateSimulationStats();
+            resultCallback.offer(simulationStats);
         }
+    }
+
+    private void saveGreenLightDuration(StatsUpdate message) {
+        if (message.previousSnapshot.getLightColorOnStreet(NORTH_SOUTH) == GREEN) {
+            greenLightDurations.get(NORTH_SOUTH).add(currentLightGreenSince);
+        } else {
+            greenLightDurations.get(WEST_EAST).add(currentLightGreenSince);
+        }
+    }
+
+    private boolean justChangedToYellow(StatsUpdate message) {
+        return hasGreenLightOn(message.previousSnapshot) && hasYellowLightOn(message.currentSnapshot);
+    }
+
+    private boolean justChangedToGreen(StatsUpdate message) {
+        return hasYellowLightOn(message.previousSnapshot) && hasGreenLightOn(message.currentSnapshot);
+    }
+
+    private boolean hasGreenLightOn(WorldSnapshot worldSnapshot) {
+        return hasLightOn(worldSnapshot, GREEN);
+    }
+
+    private boolean hasYellowLightOn(WorldSnapshot snapshot) {
+        return hasLightOn(snapshot, YELLOW);
+    }
+
+    private boolean hasLightOn(WorldSnapshot worldSnapshot, TrafficLightColor color) {
+        return worldSnapshot.getLightColorOnStreet(NORTH_SOUTH) == color || worldSnapshot.getLightColorOnStreet(WEST_EAST) == color;
     }
 
     private void saveIterationStatistics(StatsUpdate message) {
@@ -146,15 +184,24 @@ public class StatisticsCollector extends UntypedActor {
         return drivers.size() == 0? 0.0f : (totalVelocity / drivers.size());
     }
 
-    private void saveStatisticsToFile() {
+    private SimulationStats calculateSimulationStats() {
         float averageVelocity = calculateAverageVelocityInWholeSimulation();
         int totalNumberOfCollisions = calculateTotalNumberOfCollisions();
         float averageNumberOfIntersectionCrossings = calculateAverageNumberOfIntersectionCrossing();
         float averageNumberOfCarsWaitingOnRedOrYellow = calculateAverageNumberOfCarsWaitingOnRedOrYellow();
-        log.info("Average velocity in whole simulation: " + averageVelocity);
-        log.info("Total number of detected collisions: " + totalNumberOfCollisions);
-        log.info("Average number of intersection crossings: " + averageNumberOfIntersectionCrossings);
-        log.info("Average number of cars waiting on red or yellow: " + averageNumberOfCarsWaitingOnRedOrYellow);
+        float averageGreenLightDurationOnNorthSouth = calculateAverageGreenLightDuration(NORTH_SOUTH);
+        float averageGreenLightDurationOnWestEast = calculateAverageGreenLightDuration(WEST_EAST);
+        return new SimulationStats(averageVelocity, totalNumberOfCollisions,
+                averageNumberOfIntersectionCrossings, averageNumberOfCarsWaitingOnRedOrYellow,
+                averageGreenLightDurationOnNorthSouth, averageGreenLightDurationOnWestEast);
+    }
+
+    private float calculateAverageGreenLightDuration(Street street) {
+        float totalGreenLightDuration = 0.0f;
+        for (Integer greenLightDuration : greenLightDurations.get(street)) {
+            totalGreenLightDuration += greenLightDuration;
+        }
+        return totalGreenLightDuration / greenLightDurations.get(street).size();
     }
 
     private int calculateTotalNumberOfCollisions() {

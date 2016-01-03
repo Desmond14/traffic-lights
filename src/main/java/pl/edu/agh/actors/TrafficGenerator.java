@@ -100,7 +100,7 @@ public class TrafficGenerator extends UntypedActor {
                 .initialDistanceToIntersection(initialDistanceToIntersection)
                 .carWidth(baseConfiguration.carWidth)
                 .maxVelocity(max(1, baseConfiguration.maxVelocity + (int) random.nextGaussian()))
-                .yellowLightGoProbability((float)max(0, min(1, baseConfiguration.yellowLightGoProbability + random.nextGaussian()/2)))
+                .yellowLightGoProbability((float)max(0, min(1, baseConfiguration.yellowLightGoProbability + random.nextGaussian()/10)))
                 .build();
     }
 

@@ -17,6 +17,8 @@ public class Driver extends UntypedActor {
     private final DriverConfiguration configuration;
     private Integer velocity = 0;
     private Integer distanceToIntersection;
+    private boolean decidedForYellowGo = false;
+    private boolean decidedToSlowDown = false;
 
     public Driver(DriverConfiguration configuration) {
         this.configuration = configuration;
@@ -27,41 +29,61 @@ public class Driver extends UntypedActor {
     public void onReceive(Object message) throws Exception {
         SurroundingWorldSnapshot snapshot = (SurroundingWorldSnapshot) message;
         Integer newVelocity;
-        if (snapshot.trafficLightColor != GREEN && !isInSafeDistanceToIntersection(snapshot)) {
-            if (isAbleToStopBeforeIntersection()) {
-                if (snapshot.trafficLightColor == YELLOW && (Math.random() < configuration.yellowLightGoProbability)) {
-                    log.info("Trying to go on yellow light even though able to stop");
-                    newVelocity = followNagelSchreckenberg(snapshot);
-                } else {
-                    log.info("Driver is able to stop before intersection and will slow down");
-                    newVelocity = slowDown();
-                }
+        if (distanceToIntersection < 1) {
+            log.info("Driver is on or behind crossing. Will follow NaSch");
+            newVelocity = followNagelSchreckenberg(snapshot);
+        } else if (snapshot.trafficLightColor == GREEN) {
+            decidedToSlowDown = false;
+            log.info("Green light on. Will follow NaSch");
+            newVelocity = followNagelSchreckenberg(snapshot);
+        } else if (decidedToSlowDown) {
+            if (velocity == 0) {
+                log.info("Staying at 0 velocity");
+                newVelocity = velocity;
             } else {
-                newVelocity = followNagelSchreckenberg(snapshot);
-                log.info("Not able to stop before intersection. Will follow Nagel-Schreckenberg");
+                log.info("Slowing down because of earlier decision due to lights");
+                newVelocity = slowDown();
             }
+        } else if (isInSafeDistanceToIntersection(snapshot)) {
+            log.info("Is in safe distance to intersection");
+            newVelocity = followNagelSchreckenberg(snapshot);
+        } else if (meetsCriteriaForYellowGo(snapshot)) {
+            decidedForYellowGo = true;
+            log.info("Following NaSch because of yellow go");
+            newVelocity = followNagelSchreckenberg(snapshot);
+        } else if (isAbleToStopBeforeIntersection()) {
+            decidedToSlowDown = true;
+            log.info("Slowing down because traffic light is " + snapshot.trafficLightColor);
+            newVelocity = slowDown();
         } else {
-            log.info("Driver in safe distance to intersection. Will follow Nagel-Schreckenberg");
+            log.info("Not able to stop before intersection. Will follow NaSch");
             newVelocity = followNagelSchreckenberg(snapshot);
         }
-
         velocity = newVelocity;
         distanceToIntersection -= newVelocity;
         log.info("Distance to intersection: " + distanceToIntersection + " , velocity: " + velocity);
         getSender().tell(new DriverUpdate(distanceToIntersection, newVelocity), getSelf());
     }
 
-    private boolean isInSafeDistanceToIntersection(SurroundingWorldSnapshot snapshot) {
-        if (distanceToIntersection <= 0 ) {
+    private boolean meetsCriteriaForYellowGo(SurroundingWorldSnapshot snapshot) {
+        if (decidedForYellowGo == true || (lightsJustChangedToYellow(snapshot) && configuration.yellowLightGoProbability > Math.random())) {
             return true;
         }
+        return false;
+    }
+
+    private boolean lightsJustChangedToYellow(SurroundingWorldSnapshot snapshot) {
+        return snapshot.previousTrafficLightColor != YELLOW && snapshot.trafficLightColor == YELLOW;
+    }
+
+    private boolean isInSafeDistanceToIntersection(SurroundingWorldSnapshot snapshot) {
         Integer timeToSlowDown = calculateTimeToStop();
         Integer timeToReachIntersection = (int) (distanceToIntersection / (double) velocity);
-        return timeToSlowDown + 1 <= timeToReachIntersection;
+        return timeToSlowDown < timeToReachIntersection;
     }
 
     private boolean isAbleToStopBeforeIntersection() {
-        if (distanceToIntersection <= 0 ) {
+        if (distanceToIntersection <= 0) {
             return false;
         }
         int distanceToStop = calculateDistanceToStop();
@@ -71,8 +93,8 @@ public class Driver extends UntypedActor {
     private Integer calculateTimeToStop() {
         int timeToStop = 0;
         int velocityInStep = this.velocity;
-        while(velocityInStep > 0) {
-            velocityInStep -= configuration.acceleration;
+        while (velocityInStep > 0) {
+            velocityInStep -= 1;
             timeToStop++;
         }
         return timeToStop;
@@ -92,13 +114,28 @@ public class Driver extends UntypedActor {
         Integer newVelocity = tryAccelerate();
         newVelocity = Math.min(snapshot.carAheadDistance, newVelocity);
         if (Math.random() < 0.1) {
-            newVelocity = Math.max(0, newVelocity-1);
+            newVelocity = Math.max(0, newVelocity - 1);
         }
         return newVelocity;
     }
 
     private Integer slowDown() {
-        return Math.max(0, velocity - configuration.acceleration);
+        int minimalRequiredAcceleration = configuration.acceleration;
+        while (minimalRequiredAcceleration > 0 && isAbleToStopWithAcceleration(minimalRequiredAcceleration)) {
+            minimalRequiredAcceleration--;
+        }
+        log.info("Slowing down by " + minimalRequiredAcceleration+1);
+        return Math.max(0, velocity - minimalRequiredAcceleration-1);
+    }
+
+    private boolean isAbleToStopWithAcceleration(int minimalRequiredAcceleration) {
+        int currentVelocity = velocity;
+        int distanceLeft = distanceToIntersection;
+        while (currentVelocity > 0) {
+            currentVelocity -= minimalRequiredAcceleration;
+            distanceLeft -= currentVelocity;
+        }
+        return distanceLeft > 0;
     }
 
     private Integer tryAccelerate() {
